@@ -1,8 +1,12 @@
+##Kiri Daust
+##Script for compiling and creating layers for data mining project
+
 library(data.table)
 library(tidyverse)
 library(sf)
 library(raster)
 
+##load plot data
 dat <- fread("SoilTrainingData.csv")
 dat <- dat[!is.na(Latitude),]
 dat[,Longitude := -1*Longitude]
@@ -12,7 +16,8 @@ st_write(datSf,dsn = "TrainingData.gpkg", driver = "GPKG")
 plot(datSf["NutrientRegime"],pch = 16)
 table(dat$NutrientRegime)
 
-testArea <- st_read(dsn = ".",layer = "TestArea3")
+datSf <- st_read("TrainingData.gpkg")
+testArea <- st_read(dsn = "./TestArea",layer = "FinalTA")
 datSf <- st_transform(datSf,3005)
 datSub <- datSf[testArea,]
 library(sen2r)
@@ -79,15 +84,18 @@ swi <- saga$ta_hydrology$saga_wetness_index(dem = dem2,suction = 10,area_type = 
 st_layers("./SoilMaps/BC_Soil_Map.gdb")
 smap <- st_read("./SoilMaps/BC_Soil_Map.gdb",layer = "BC_Soil_Surveys")
 smap <- st_cast(smap,"MULTIPOLYGON")
-boundary <- st_as_sfc(st_bbox(testArea))
-smap_small <- smap[boundary,]
+smap_small <- smap[testArea,]
 smap_small <- st_buffer(smap_small, dist = 0)
-smap_small <- st_intersection(smap_small,boundary)
+smap_small <- st_intersection(smap_small,testArea)
 st_write(smap_small,dsn = "ClippedSoil.gpkg")
+smap_small <- st_read("ClippedSoil.gpkg")
 layerDat <- st_drop_geometry(smap_small)
 
+##load dem for reference
+tpi <- raster("./DemLayers/Aspect.tif")
 library(fasterize)
 snames <- c("SOILCODE_1","DEVELOP1_1","PM1_1","Drain_1","TEXTURE_1","AWHC120_1")
+layNames <- c("Soilcode","Development","Pm","Drainage","Texture","AWHC120")
 soilStack <- stack()
 for(lName in snames){
   temp <- smap_small[lName]
@@ -97,21 +105,49 @@ for(lName in snames){
   rast <- fasterize(temp,raster = tpi,field = "Var")
   soilStack <- stack(soilStack,rast)
 }
+names(soilStack) <- layNames
 
+library(stars)
 ndvi <- raster("./SatelliteLayers/data_mining_ndvi2-0000000000-0000032768.tif")
-ndvi <- projectRaster(ndvi,tpi)
+st.ndvi <- st_as_stars(ndvi)
+ref <- st_as_stars(tpi)
+dvi2 <- st_warp(st.ndvi,dest = ref)
+ndvi <- as(dvi2,"Raster")
+writeRaster(ndvi,"ndvi.tif",format = "GTiff")
+
+ndwi <- raster("./SatelliteLayers/data_mining_ndwi-0000000000-0000032768.tif")
+st.ndwi <- st_as_stars(ndwi)
+ref <- st_as_stars(tpi)
+dwi2 <- st_warp(st.ndwi,dest = ref)
+ndwi <- as(dwi2,"Raster")
+writeRaster(ndwi,"ndwi.tif",format = "GTiff")
+
+nbrt1 <- raster("./SatelliteLayers/data_mining_nbrt-0000000000-0000023296.tif")
+nbrt2 <- raster("./SatelliteLayers/data_mining_nbrt-0000000000-0000046592.tif")
+nbrt <- merge(nbrt1,nbrt2)
+st.nbrt <- st_as_stars(nbrt)
+brt2 <- st_warp(st.nbrt,dest = ref)
+nbrt <- as(brt2,"Raster")
+nbrt[nbrt > 1 | nbrt < -1] <- NA
+writeRaster(nbrt,"nBRT.tif",format = "GTiff")
+
+##load satellite layers
+slayers <- c("ndvi.tif","ndwi.tif","nBRT.tif")
+satStack <- stack(paste0("./SatelliteLayers/",slayers))
+
 ##load layers, extract points
 layers <- c("Aspect.tif","FlowAccum.tif","FlowLength.tif","mrrtf.tif","mrvbf.tif",
             "Slope.tif","tca.tif","tpi.tif","tri.tif","twi.tif","vdepth.tif")
 rstack <- stack(paste0("./DemLayers/",layers))
+allStack <- stack(rstack,satStack,soilStack)
+
 library(velox)
 velStack <- velox(rstack)
 trainDat <- st_read("TrainingData.gpkg")
-testArea <- st_read(dsn = ".",layer = "TestArea3")
 datSf <- st_transform(trainDat,3005)
 datSub <- datSf[testArea,]
-datSub <- st_transform(datSub,st_crs(rstack))
-covDat <- raster::extract(rstack,datSub)
+datSub <- st_transform(datSub,st_crs(allStack))
+covDat <- raster::extract(allStack,datSub)
 trDatComb <- data.table(ID = datSub$PlotNumber, Nutrient = datSub$NutrientRegime,covDat)
 trDatComb[is.na(Aspect),Aspect := 0]
 trDatComb <- na.omit(trDatComb)

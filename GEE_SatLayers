@@ -1,0 +1,62 @@
+//Kiri Daust
+//DataMining projection
+//Google earth engine script for satellite layers
+
+var landsat = ee.ImageCollection("LANDSAT/LC08/C01/T1")
+    .filterDate('2018-01-01', '2020-01-01')
+    .filterBounds(table);
+    
+
+var composite = ee.Algorithms.Landsat.simpleComposite({
+  collection: landsat,
+  asFloat: true
+});
+
+
+composite = composite.clip(table);
+print(composite);
+print(composite.projection());
+var ndvi = composite.normalizedDifference(["B5", "B4"]);
+Map.addLayer(ndvi, {min:0, max:1} , "NDVI");
+
+Export.image.toDrive({
+   image: ndvi,
+   description: 'data_mining_ndvi2',
+   scale: 25,
+   crs: 'EPSG:4326',
+   folder: 'DataMining',
+   maxPixels: 2000000000
+ });
+
+ Map.centerObject(table, 11);
+
+var ndwi = composite.normalizedDifference(["B3", "B5"]);
+Export.image.toDrive({
+  image: ndwi,
+  description: 'data_mining_ndwi',
+  scale: 25,
+  crs: 'EPSG:4326',
+  folder: 'DataMining',
+  maxPixels: 2000000000
+});
+
+Map.addLayer(ndwi, {min:-1, max:0} , "NDWI");
+
+var nBRT = composite.expression({
+  expression: '(nir - 0.0001 * swir * thermal) / ' +
+              '(nir + 0.0001 * swir * thermal)', 
+  map: {
+    nir: composite.select('B5'),
+    swir: composite.select('B7'),
+    thermal: composite.select('B11')
+  }
+});
+
+Export.image.toDrive({
+  image: nBRT,
+  description: 'data_mining_nbrt',
+  scale: 25,
+  crs: 'EPSG:4326',
+  folder: 'DataMining',
+  maxPixels: 2000000000
+});
