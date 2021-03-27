@@ -18,17 +18,25 @@ table(dat$NutrientRegime)
 
 datSf <- st_read("TrainingData.gpkg")
 testArea <- st_read(dsn = "./TestArea",layer = "FinalTA")
+testArea <- st_transform(testArea,3005)
 datSf <- st_transform(datSf,3005)
 datSub <- datSf[testArea,]
+datSub <- datSub[datSub$MoistureRegime %in% c(1,2,3,4,5,6),]
 library(sen2r)
 
 
 ## create dem layers
 library(Rsagacmd)
 dem <- raster("bc25fill")
-aoi <- st_read(dsn = ".",layer = "TestArea3")
+aoi <- st_read(dsn = "TestArea",layer = "FinalTA")
 aoi <- st_transform(aoi,st_crs(dem))
 dem2 <- crop(dem,aoi)
+#crs(dem) <- 3001
+dem2 <- st_as_stars(dem2)
+dem3 <- st_warp(dem2, crs = 4326)
+dem3 <- as(dem3,"Raster")
+writeRaster(dem3, "DemClipped.asc", format = "ascii")
+mat <- raster("./ClippedDem/Decade_2011_2019Y/MAT.asc")
 
 # Define inputs used in some of the SAGA tools below
 reference_res <- res(dem_input)[1]
@@ -94,8 +102,8 @@ layerDat <- st_drop_geometry(smap_small)
 ##load dem for reference
 tpi <- raster("./DemLayers/Aspect.tif")
 library(fasterize)
-snames <- c("SOILCODE_1","DEVELOP1_1","PM1_1","Drain_1","TEXTURE_1","AWHC120_1")
-layNames <- c("Soilcode","Development","Pm","Drainage","Texture","AWHC120")
+snames <- c("SOILCODE_1","TEXTURE_1","Drain_1")
+layNames <- c("Soilcode","Texture","Drainage")
 soilStack <- stack()
 for(lName in snames){
   temp <- smap_small[lName]
@@ -106,6 +114,9 @@ for(lName in snames){
   soilStack <- stack(soilStack,rast)
 }
 names(soilStack) <- layNames
+bgcRast <- raster("BGCRaster.tif")
+factorStack <- stack(soilStack,bgcRast)
+
 
 library(stars)
 ndvi <- raster("./SatelliteLayers/data_mining_ndvi2-0000000000-0000032768.tif")
@@ -131,24 +142,144 @@ nbrt <- as(brt2,"Raster")
 nbrt[nbrt > 1 | nbrt < -1] <- NA
 writeRaster(nbrt,"nBRT.tif",format = "GTiff")
 
+clay <- raster("./SatelliteLayers/data_mining_clay.tif")
+st.clay <- st_as_stars(clay)
+ref <- st_as_stars(tpi)
+dwi2 <- st_warp(st.clay,dest = ref)
+clay <- as(dwi2,"Raster")
+writeRaster(clay,"clay.tif",format = "GTiff")
+
+
+evi <- raster("./SatelliteLayers/data_mining_evi-0000000000-0000000000.tif")
+evi2 <- raster("./SatelliteLayers/data_mining_evi-0000000000-0000023296.tif")
+evi <- merge(evi1,evi2)
+st.evi <- st_as_stars(evi)
+evi2 <- st_warp(st.evi,dest = ref)
+evi <- as(evi2,"Raster")
+writeRaster(evi,"evi.tif",format = "GTiff")
+
+iron <- raster("./SatelliteLayers/data_mining_iron-0000000000-0000000000.tif")
+st.iron <- st_as_stars(iron)
+iron2 <- st_warp(st.iron,dest = ref)
+iron <- as(iron2,"Raster")
+writeRaster(iron,"iron.tif",format = "GTiff")
+
+rvi <- raster("./SatelliteLayers/data_mining_rvi-0000000000-0000000000.tif")
+st.rvi <- st_as_stars(rvi)
+rvi2 <- st_warp(st.rvi,dest = ref)
+rvi <- as(rvi2,"Raster")
+writeRaster(rvi,"rvi.tif",format = "GTiff")
+
+bgc <- st_read("../Work2021/CommonTables/WNA_BGC_v12_12Oct2020.gpkg")
+bgc <- st_buffer(bgc, dist = 0)
+bgc <- st_intersection(bgc,testArea)
+bgc <- bgc["BGC"]
+bgcLookup <- data.table(BGC = unique(bgc$BGC))
+bgcLookup[,bgcID := 1:nrow(bgcLookup)]
+bgc <- merge(bgc,bgcLookup, by = "BGC", all = T)
+bgc <- st_transform(bgc,st_crs(tpi))
+bgc <- st_cast(bgc,"MULTIPOLYGON")
+bgcRast <- fasterize(sf = bgc, raster = tpi,field = "bgcID")
+writeRaster(bgcRast,"BGCRaster.tif",format = "GTiff")
 ##load satellite layers
-slayers <- c("ndvi.tif","ndwi.tif","nBRT.tif")
+slayers <- c("ndvi.tif","ndwi.tif","nBRT.tif","clay.tif","evi.tif","iron.tif") ##"evi.tif","rvi.tif",,"iron.tif"
 satStack <- stack(paste0("./SatelliteLayers/",slayers))
 
 ##load layers, extract points
 layers <- c("Aspect.tif","FlowAccum.tif","FlowLength.tif","mrrtf.tif","mrvbf.tif",
             "Slope.tif","tca.tif","tpi.tif","tri.tif","twi.tif","vdepth.tif")
 rstack <- stack(paste0("./DemLayers/",layers))
-allStack <- stack(rstack,satStack,soilStack)
+allStack <- stack(rstack,satStack,factorStack)
 
-library(velox)
-velStack <- velox(rstack)
+# soilMap <- st_transform(smap_small,st_crs(allStack))
+# samp <- st_sample(soilMap, size = 10000)
+# samp <- st_as_sf(data.frame(ID = 1:10000,geometry = samp))
+# soilSamp <- st_join(samp,soilMap,left = F)
+# soilSamp <- unique(soilSamp)
+# covDat <- raster::extract(allStack,samp)
+# covDat <- data.table(ID = samp$ID,covDat)
+# soilSamp <- st_drop_geometry(soilSamp)
+# soilSamp <- as.data.table(soilSamp)
+# soilSamp <- soilSamp[,.(ID,SOILCODE_1,PROFILE_1,PM1_1,Drain_1,TEXTURE_1)]
+# covDat[soilSamp, Class := i.Drain_1, on = "ID"]
+# covDat <- na.omit(covDat)
+# covDat <- covDat[Class != "-",]
+# table(covDat$Class)
+
+
 trainDat <- st_read("TrainingData.gpkg")
 datSf <- st_transform(trainDat,3005)
 datSub <- datSf[testArea,]
-datSub <- st_transform(datSub,st_crs(allStack))
-covDat <- raster::extract(allStack,datSub)
-trDatComb <- data.table(ID = datSub$PlotNumber, Nutrient = datSub$NutrientRegime,covDat)
+datSub <- st_transform(datSub,st_crs(factorStack))
+# factDat <- raster::extract(factorStack,datSub)
+# factDat <- as.data.frame(apply(factDat,2,as.factor))
+# factOHE <- model.matrix(~., data = factDat)
+# factOHE <- factOHE[,-1]
+allDat <- raster::extract(allStack,datSub)
+allDat <- as.data.frame(allDat)
+#allDat <- na.omit(allDat)
+allDat$Soilcode <- as.factor(allDat$Soilcode); allDat$Drainage <- as.factor(allDat$Drainage)
+allDat$Texture <- as.factor(allDat$Texture); allDat$BGCRaster <- as.factor(allDat$BGCRaster)
+options(na.action = "na.pass")
+allDatOHE <- model.matrix(~.,data = allDat)
+allDatOHE <- allDatOHE[,-1]
+options(na.action = "na.action.default")
+allDatOHE <- allDatOHE[,abs(colSums(allDatOHE,na.rm = T)) > 5]
+
+trDatComb <- data.table(Nutrient = datSub$NutrientRegime,allDatOHE)
 trDatComb[is.na(Aspect),Aspect := 0]
 trDatComb <- na.omit(trDatComb)
-fwrite(trDatComb,"TrainingData_Covariates.csv")
+fwrite(trDatComb,"TrainingData_V2_OHE.csv")
+trDatComb <- fread("TrainingData_V2_OHE.csv")
+library(ranger)
+trDatComb <- fread("TrainingData_NoNull.csv")
+NutCross <- data.table(Nutrient = c("A","B","C","D","E"),NutrientOrd = c(0,0,0,1,1))
+trDatComb[NutCross, YOrd := i.NutrientOrd, on = "Nutrient"]
+
+#trDatComb[,YOrd := Nutrient]
+trDatComb[,Nutrient := NULL]
+trDatComb[,YOrd := as.factor(YOrd)]
+
+library(UBL)
+table(trDatComb$YOrd)
+smoted <- SmoteClassif(YOrd ~ ., dat = trDatComb)
+table(smoted$YOrd)
+fwrite(smoted,"TrainingSet_Smoted.csv")
+trDatComb <- smoted
+set.seed(0)
+# trDatComb[,ID := NULL]
+# trDatComb <- trDatComb[Class %in% c("MW","R","W"),]
+# trDatComb[,Class := as.factor(as.character(Class))]
+testID <- sample(nrow(trDatComb),size = 0.7*nrow(trDatComb),replace = F)
+trainDat <- trDatComb[testID,]
+testDat <- trDatComb[-testID,]
+library(ranger)
+rf <- ranger(YOrd ~ .,data = trainDat,num.trees = 650,splitrule = "gini")
+rf$prediction.error
+temp <- predict(rf,testDat)
+testDat$Fit <- temp$predictions
+test <- testDat[,.(YOrd,Fit)]
+table(test)
+t2 <- test$YOrd == test$Fit
+length(t2[t2  == T])/length(t2)
+fwrite(trDatComb,"TrainingSmoted_2class.csv")
+library(fastAdaboost)
+ada <- adaboost(YOrd ~ ., data = trainDat,nIter = 100)
+temp <- predict(ada,testDat)
+testDat$Fit <- temp$class
+test <- testDat[,.(YOrd,Fit)]
+table(test)
+t2 <- test$YOrd == test$Fit
+length(t2[t2  == T])/length(t2)
+
+library(ordinalForest)
+trainDat[,YOrd := as.factor(YOrd)]
+orf <- ordfor("YOrd",data = trainDat,perffunction = "proportional")
+
+
+temp <- predict(orf,newdata = testDat)
+testDat$Fit <- temp$ypred
+test <- testDat[,.(YOrd,Fit)]
+table(test)
+t2 <- test$YOrd == test$Fit
+length(t2[t2  == T])/length(t2)
