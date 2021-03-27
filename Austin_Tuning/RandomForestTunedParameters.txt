@@ -1,0 +1,22 @@
+TrainingData_NoNull.csv
+========================
+Best Parameters:
+{'criterion': 'gini', 'max_depth': 30, 'max_features': 'auto', 'min_samples_split': 8, 'n_estimators': 300}
+Training Accuracy: 0.5367875647668393
+Testing Accuracy: 0.572463768115942
+
+TrainingSet_Smoted.csv
+======================
+
+Best Parameters:
+{'criterion': 'entropy', 'max_depth': 30, 'max_features': 'log2', 'min_samples_split': 4, 'n_estimators': 300}
+Training Accuracy: 0.5871923037025368
+Testing Accuracy: 0.606430155210643
+
+TrainingSmoted_2class.csv
+=========================
+
+Best Parameters:
+{'criterion': 'entropy', 'max_depth': 30, 'max_features': 'auto', 'min_samples_split': 8, 'n_estimators': 300}
+Training Accuracy: 0.8223446966931893
+Testing Accuracy: 0.8093126385809313
