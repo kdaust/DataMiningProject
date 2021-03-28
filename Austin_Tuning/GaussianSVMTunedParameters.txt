@@ -1,0 +1,36 @@
+TrainingData_NoNull.csv
+========================
+
+Best Parameters:
+{'C': 1, 'gamma': 0.001}
+Training Accuracy: 0.5435233160621762
+Testing Accuracy: 0.5351966873706004
+
+TrainingSet_Smoted.csv
+======================
+
+Best Parameters:
+{'C': 1000, 'gamma': 0.0001}
+Training Accuracy: 0.5403360214537365
+Testing Accuracy: 0.549889135254989
+
+TrainingSmoted_2class.csv
+=========================
+Potential Parameters:
+{'C': [1, 10, 100, 1000], 'gamma': [0.001, 0.0001]}
+
+Best Parameters:
+{'C': 1000, 'gamma': 0.0001}
+Training Accuracy: 0.7239387431276199
+Testing Accuracy: 0.7505543237250555
+
+TrainingSmoted_2class.csv
+=========================
+
+Potential Parameters:
+{'C': [1000, 1100, 2000, 2100], 'gamma': [0.0001, 0.00001, 0.000001]}
+
+Best Parameters:
+{'C': 2100, 'gamma': 0.0001}
+Training Accuracy: 0.7100906328160719
+Testing Accuracy: 0.7516629711751663
